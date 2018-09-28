@@ -8,9 +8,13 @@ package main
 // cp $GOPATH/src/github.com/jeffwilliams/nvacme/nvacme.vim $GOPATH/bin/nvacme .
 
 import (
+	"flag"
 	"fmt"
+	"os"
+	"path"
 	"regexp"
-	//"strconv"
+	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/neovim/go-client/nvim"
@@ -27,6 +31,7 @@ type NvAcme struct {
 
 func (n NvAcme) Echom(fmts string, args ...interface{}) {
 	s := fmt.Sprintf(fmts, args...)
+	s = strings.Replace(s, "'", "''", -1)
 	n.P.Nvim.Command(fmt.Sprintf(":echom '%s'", s))
 }
 
@@ -81,11 +86,6 @@ func (n NvAcme) SelectionText() (text string, err error) {
 		return
 	}
 
-	n.Echom("bytes len: %d", len(bytes))
-	for i, v := range bytes {
-		n.Echom("bytes[%d]: %s", i, v)
-	}
-
 	if len(bytes) == 0 {
 		err = fmt.Errorf("selection is empty")
 		return
@@ -101,12 +101,12 @@ func (n NvAcme) SelectionText() (text string, err error) {
 	return
 }
 
-var pathRegex = regexp.MustCompile(`^([^:]+)(:\d+)(:\d+)`)
+var pathRegex = regexp.MustCompile(`^([^:]+)(?::(\d+))?(?::(\d+))?`)
 
 // KEEP CODING HERE: now that we have the text, parse it as a filename and open it. Use getcwd for relative paths.
 // - convert path to absolute
 // - parse the line number:column suffix
-func (n NvAcme) parsePath(text string) (path string, line, col int, err error) {
+func (n NvAcme) parsePath(text string) (fpath string, line, col int, err error) {
 	line = 1
 	col = 1
 
@@ -116,30 +116,121 @@ func (n NvAcme) parsePath(text string) (path string, line, col int, err error) {
 		err = fmt.Errorf("doesn't seem to be a valid path")
 		return
 	}
-	path = match[1]
-	/*
-		if len(match) > 2 {
-			line, err = strconv.Atoi(match[2])
-			if err != nil {
-				return
-			}
+	n.Echom("match: %#v", match)
+	fpath = match[1]
+	if len(match) > 2 && match[2] != "" {
+		line, err = strconv.Atoi(match[2])
+		if err != nil {
+			return
 		}
-		if len(match) > 3 {
-			col, err = strconv.Atoi(match[3])
-			if err != nil {
-				return
-			}
+	}
+	if len(match) > 3 && match[3] != "" {
+		col, err = strconv.Atoi(match[3])
+		if err != nil {
+			return
 		}
-	*/
+	}
+
+	if !path.IsAbs(fpath) {
+		result := ""
+		err = n.P.Nvim.Call("getcwd", &result)
+		if err != nil {
+			return
+		}
+
+		fpath = result + "/" + fpath
+	}
+
 	return
 }
 
+// splitOrChangeTo opens the path, unless it's already open in another wundow
+func (n NvAcme) splitOrChangeTo(fpath string) (err error) {
+	nv := n.P.Nvim
+
+	wins, err := nv.Windows()
+	if err != nil {
+		return
+	}
+
+	for _, win := range wins {
+		var buf nvim.Buffer
+		var bufFileName string
+		var winNr int
+
+		buf, err = nv.WindowBuffer(win)
+		if err != nil {
+			return
+		}
+		bufFileName, err = nv.BufferName(buf)
+		if err != nil {
+			return
+		}
+
+		winNr, err = nv.WindowNumber(win)
+		if err != nil {
+			return
+		}
+
+		if !path.IsAbs(bufFileName) {
+			result := ""
+			err = nv.Call("getcwd", &result, winNr)
+			if err != nil {
+				return
+			}
+			bufFileName = result + "/" + bufFileName
+		}
+
+		if bufFileName == fpath {
+			// Change to this window
+			err = nv.Command(fmt.Sprintf("%dwincmd w", winNr))
+			return
+		}
+	}
+
+	// Not found. Split new window
+	err = nv.Command(fmt.Sprintf("split %s", fpath))
+
+	return
+}
+
+func (n NvAcme) jumpToLineAndCol(line, col int) (err error) {
+	nv := n.P.Nvim
+	err = nv.Call("cursor", nil, line, col)
+	return
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+var optLogPanic = flag.Bool("logpanic", false, "log panics to the file /tmp/nvacme.panic")
+
+func logPanic() {
+	if v := recover(); v != nil {
+		f, err := os.Create("/tmp/nvacme.panic")
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(f, "%s\n", v)
+		fmt.Fprintf(f, "%s\n", debug.Stack())
+		f.Close()
+	}
+}
+
 func main() {
+
+	flag.Parse()
+
 	plugin.Main(func(p *plugin.Plugin) error {
 
 		a := NvAcme{p}
 
 		openPath := func(args []string) (string, error) {
+			if *optLogPanic {
+				defer logPanic()
+			}
 			line, startCol, endCol, err := a.Selection()
 
 			if err != nil {
@@ -155,7 +246,7 @@ func main() {
 				return "", nil
 			}
 
-			a.Echom("texta: %s", text)
+			a.Echom("text: %s", text)
 
 			path, line, col, err := a.parsePath(text)
 			if err != nil {
@@ -163,6 +254,24 @@ func main() {
 				return "", nil
 			}
 			a.Echom("path: %s line: %d col: %d", path, line, col)
+
+			if !pathExists(path) {
+				a.Echom("error: no such file '%s'", path)
+				return "", nil
+			}
+
+			err = a.splitOrChangeTo(path)
+			if err != nil {
+				a.Echom("error: %v", err)
+				return "", nil
+			}
+
+			err = a.jumpToLineAndCol(line, col)
+			if err != nil {
+				a.Echom("error: %v", err)
+				return "", nil
+			}
+
 			return "", nil
 		}
 

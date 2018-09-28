@@ -1,10 +1,10 @@
 a test file
 main.go
-main.go:108
-main.go:108:17
+main.go:109
+main.go:109:17
 /home/kanobe/src/go/src/github.com/jeffwilliams/nvacme/main.go:108:17
 
 a main.go
-a main.go:108
-a main.go:108:17
+a main.go:109
+a main.go:109:17
 a /home/kanobe/src/go/src/github.com/jeffwilliams/nvacme/main.go:108:17 aa

@@ -5,7 +5,8 @@ let g:loaded_nvacme = 1
 
 function! s:RequireNvacme(host) abort
   " 'nvacme' is the binary created by compiling the program.
-  return jobstart(['nvacme'], {'rpc': v:true})
+  return jobstart(['nvacme','-logpanic'], {'rpc': v:true})
+  "return jobstart(['nvacme'], {'rpc': v:true})
 endfunction
 
 call remote#host#Register('nvacme', 'x', function('s:RequireNvacme'))
