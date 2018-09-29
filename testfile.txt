@@ -1,7 +1,7 @@
 a test file
 main.go
 main.go:109
-main.go:109:17
+main.go:3:17
 /home/kanobe/src/go/src/github.com/jeffwilliams/nvacme/main.go:108:17
 
 a main.go

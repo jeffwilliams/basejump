@@ -21,14 +21,16 @@ import (
 	"github.com/neovim/go-client/nvim/plugin"
 )
 
-func hello(args []string) (string, error) {
-	return "Hello " + strings.Join(args, " "), nil
-}
-
 type NvAcme struct {
 	P *plugin.Plugin
 }
 
+func (n NvAcme) nvim() *nvim.Nvim {
+	return n.P.Nvim
+}
+
+// Echom formats it's arguments using fmt.Sprintf, then performs the echom command with the resulting
+// string. Basically a printf to vim's status line and stores it in vim's messages.
 func (n NvAcme) Echom(fmts string, args ...interface{}) {
 	s := fmt.Sprintf(fmts, args...)
 	s = strings.Replace(s, "'", "''", -1)
@@ -38,7 +40,9 @@ func (n NvAcme) Echom(fmts string, args ...interface{}) {
 // Selection returns the coordinates of the current selection, if it is within a single line
 func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
 	result := make([]float32, 4)
-	err = n.P.Nvim.Call("getpos", result, "'<")
+	nv := n.nvim()
+
+	err = nv.Call("getpos", result, "'<")
 	if err != nil {
 		return
 	}
@@ -46,7 +50,7 @@ func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
 	startLine := result[1]
 	startCol = int(result[2])
 
-	err = n.P.Nvim.Call("getpos", result, "'>")
+	err = nv.Call("getpos", result, "'>")
 	if err != nil {
 		return
 	}
@@ -64,9 +68,9 @@ func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
 	return
 }
 
+// SelectionText returns the text contained in the current selection.
 func (n NvAcme) SelectionText() (text string, err error) {
-
-	nv := n.P.Nvim
+	nv := n.nvim()
 
 	var line, startCol, endCol int
 	line, startCol, endCol, err = n.Selection()
@@ -96,6 +100,13 @@ func (n NvAcme) SelectionText() (text string, err error) {
 		return
 	}
 
+	// For some reason a visual selection can select one character past the end of the line
+	if endCol > len(bytes[0]) {
+		endCol = len(bytes[0])
+	}
+
+	n.Echom("SelectionText: slicing from %v to %v in line of length %d", startCol-1, endCol, len(bytes[0]))
+
 	text = string(bytes[0][startCol-1 : endCol])
 
 	return
@@ -103,20 +114,24 @@ func (n NvAcme) SelectionText() (text string, err error) {
 
 var pathRegex = regexp.MustCompile(`^([^:]+)(?::(\d+))?(?::(\d+))?`)
 
-// KEEP CODING HERE: now that we have the text, parse it as a filename and open it. Use getcwd for relative paths.
-// - convert path to absolute
-// - parse the line number:column suffix
-func (n NvAcme) parsePath(text string) (fpath string, line, col int, err error) {
-	line = 1
-	col = 1
-
+// ParsePath parses `text` into a filesystem path, line, and column. The `text`
+// parameter must have one of the formats:
+//
+//    <path>								(for example file.go, or /bin/bash)
+//    <path>:<line>					(for example file.go:100)
+//    <path>:<line>:<col>		(for example file.go:100:20)
+//
+// If the parsed path is not absolute it is made absolute by prepending the
+// cwd of the current window in vim.
+//
+// If line and or col is missing, they are set to 0.
+func (n NvAcme) ParsePath(text string) (fpath string, line, col int, err error) {
 	text = strings.TrimSpace(text)
 	match := pathRegex.FindStringSubmatch(text)
 	if match == nil || len(match) < 2 {
 		err = fmt.Errorf("doesn't seem to be a valid path")
 		return
 	}
-	n.Echom("match: %#v", match)
 	fpath = match[1]
 	if len(match) > 2 && match[2] != "" {
 		line, err = strconv.Atoi(match[2])
@@ -131,22 +146,45 @@ func (n NvAcme) parsePath(text string) (fpath string, line, col int, err error) 
 		}
 	}
 
-	if !path.IsAbs(fpath) {
-		result := ""
-		err = n.P.Nvim.Call("getcwd", &result)
-		if err != nil {
-			return
-		}
-
-		fpath = result + "/" + fpath
+	fpath, err = n.AbsPath(fpath)
+	if err != nil {
+		return
 	}
-
 	return
 }
 
-// splitOrChangeTo opens the path, unless it's already open in another wundow
-func (n NvAcme) splitOrChangeTo(fpath string) (err error) {
-	nv := n.P.Nvim
+// AbsPath makes the path `fpath` absolute if it is not by prepending
+// the working directory of the current window.
+func (n NvAcme) AbsPath(fpath string) (result string, err error) {
+	return n.AbsPathRelWindow(fpath, -1)
+}
+
+// AbsPathRelWindow makes the path `fpath` absolute if it is not by prepending
+// the working directory of the window `window`.
+func (n NvAcme) AbsPathRelWindow(fpath string, window int) (result string, err error) {
+	nv := n.nvim()
+
+	result = fpath
+	if !path.IsAbs(fpath) {
+		r := ""
+		args := make([]interface{}, 0, 1)
+		if window != -1 {
+			args = append(args, window)
+		}
+		err = nv.Call("getcwd", &r, args...)
+		if err != nil {
+			return
+		}
+		result = r + "/" + fpath
+	}
+	return
+}
+
+// SplitOrChangeTo ensures the specified file is open in vim. If the path is found in a
+// window, that window is made current. If no window contains that path, it is split and
+// opened.
+func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
+	nv := n.nvim()
 
 	wins, err := nv.Windows()
 	if err != nil {
@@ -172,18 +210,15 @@ func (n NvAcme) splitOrChangeTo(fpath string) (err error) {
 			return
 		}
 
-		if !path.IsAbs(bufFileName) {
-			result := ""
-			err = nv.Call("getcwd", &result, winNr)
-			if err != nil {
-				return
-			}
-			bufFileName = result + "/" + bufFileName
+		bufFileName, err = n.AbsPathRelWindow(bufFileName, winNr)
+		if err != nil {
+			return
 		}
 
 		if bufFileName == fpath {
 			// Change to this window
 			err = nv.Command(fmt.Sprintf("%dwincmd w", winNr))
+			wasOpen = true
 			return
 		}
 	}
@@ -194,7 +229,9 @@ func (n NvAcme) splitOrChangeTo(fpath string) (err error) {
 	return
 }
 
-func (n NvAcme) jumpToLineAndCol(line, col int) (err error) {
+// JumpToLineAndCol moves the cursor to the specified line and column in the
+// current buffer.
+func (n NvAcme) JumpToLineAndCol(line, col int) (err error) {
 	nv := n.P.Nvim
 	err = nv.Call("cursor", nil, line, col)
 	return
@@ -231,14 +268,6 @@ func main() {
 			if *optLogPanic {
 				defer logPanic()
 			}
-			line, startCol, endCol, err := a.Selection()
-
-			if err != nil {
-				a.Echom("error: %v", err)
-				return "", nil
-			}
-
-			a.Echom("line: %d, scol: %d, ecol: %d", line, startCol, endCol)
 
 			text, err := a.SelectionText()
 			if err != nil {
@@ -246,27 +275,38 @@ func main() {
 				return "", nil
 			}
 
-			a.Echom("text: %s", text)
-
-			path, line, col, err := a.parsePath(text)
+			path, line, col, err := a.ParsePath(text)
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
 			}
-			a.Echom("path: %s line: %d col: %d", path, line, col)
 
 			if !pathExists(path) {
 				a.Echom("error: no such file '%s'", path)
 				return "", nil
 			}
 
-			err = a.splitOrChangeTo(path)
+			var wasOpen bool
+			wasOpen, err = a.SplitOrChangeTo(path)
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
 			}
 
-			err = a.jumpToLineAndCol(line, col)
+			if col == 0 {
+				col = 1
+			}
+			if !wasOpen {
+				if line == 0 {
+					line = 1
+				}
+				err = a.JumpToLineAndCol(line, col)
+			} else {
+				if line != 0 {
+					err = a.JumpToLineAndCol(line, col)
+				}
+			}
+
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
@@ -275,7 +315,6 @@ func main() {
 			return "", nil
 		}
 
-		p.HandleFunction(&plugin.FunctionOptions{Name: "Hello"}, hello)
 		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenPath"}, openPath)
 		return nil
 	})
