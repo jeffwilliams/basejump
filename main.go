@@ -105,8 +105,6 @@ func (n NvAcme) SelectionText() (text string, err error) {
 		endCol = len(bytes[0])
 	}
 
-	n.Echom("SelectionText: slicing from %v to %v in line of length %d", startCol-1, endCol, len(bytes[0]))
-
 	text = string(bytes[0][startCol-1 : endCol])
 
 	return
@@ -159,6 +157,10 @@ func (n NvAcme) AbsPath(fpath string) (result string, err error) {
 	return n.AbsPathRelWindow(fpath, -1)
 }
 
+func (n NvAcme) pidCwd(pid int) (string, error) {
+	return os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
+}
+
 // AbsPathRelWindow makes the path `fpath` absolute if it is not by prepending
 // the working directory of the window `window`.
 func (n NvAcme) AbsPathRelWindow(fpath string, window int) (result string, err error) {
@@ -166,16 +168,53 @@ func (n NvAcme) AbsPathRelWindow(fpath string, window int) (result string, err e
 
 	result = fpath
 	if !path.IsAbs(fpath) {
-		r := ""
-		args := make([]interface{}, 0, 1)
-		if window != -1 {
-			args = append(args, window)
+
+		var cwd string
+
+		if window == -1 {
+			// If the current window is a terminal window, then we need
+			// to get the cwd in a special way. We can't use this method for
+			// the non-current window.
+			var b bool
+			err = nv.Call("exists", &b, "b:term_title")
+			if err != nil {
+				return
+			}
+			if b {
+				// Is a terminal.
+				var pid float32
+				var buf nvim.Buffer
+				buf, err = nv.CurrentBuffer()
+				//buf, err = nv.WindowBuffer(win)
+				if err != nil {
+					return
+				}
+				err = nv.BufferVar(buf, "terminal_job_pid", &pid)
+				if err != nil {
+					return
+				}
+
+				cwd, err = n.pidCwd(int(pid))
+				if err != nil {
+					return
+				}
+			}
+
 		}
-		err = nv.Call("getcwd", &r, args...)
-		if err != nil {
-			return
+
+		if cwd == "" {
+
+			args := make([]interface{}, 0, 1)
+			if window != -1 {
+				args = append(args, window)
+			}
+
+			err = nv.Call("getcwd", &cwd, args...)
+			if err != nil {
+				return
+			}
 		}
-		result = r + "/" + fpath
+		result = cwd + "/" + fpath
 	}
 	return
 }
@@ -256,6 +295,14 @@ func logPanic() {
 	}
 }
 
+var doTrace = false
+
+func trace(n NvAcme, fmt string, args ...interface{}) {
+	if doTrace {
+		n.Echom(fmt, args...)
+	}
+}
+
 func main() {
 
 	flag.Parse()
@@ -269,23 +316,28 @@ func main() {
 				defer logPanic()
 			}
 
+			trace(a, "trace: obtaining selected text")
+
 			text, err := a.SelectionText()
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
 			}
 
+			trace(a, "trace: parsing path")
 			path, line, col, err := a.ParsePath(text)
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
 			}
 
+			trace(a, "trace: checking if path exists")
 			if !pathExists(path) {
 				a.Echom("error: no such file '%s'", path)
 				return "", nil
 			}
 
+			trace(a, "trace: ensuring file is open or opening it")
 			var wasOpen bool
 			wasOpen, err = a.SplitOrChangeTo(path)
 			if err != nil {
