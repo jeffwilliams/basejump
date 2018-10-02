@@ -1,8 +1,5 @@
 package main
 
-// imap <M-MiddleMouse> asd
-// :tmap <M-MiddleMouse> <C-\><C-n><C-w><Down>
-
 //
 // ~/.local/share/nvim/site/plugin
 // cp $GOPATH/src/github.com/jeffwilliams/nvacme/nvacme.vim $GOPATH/bin/nvacme .
@@ -253,9 +250,9 @@ func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 		if err != nil {
 			return
 		}
-
-		if bufFileName == fpath {
+		if path.Clean(bufFileName) == path.Clean(fpath) {
 			// Change to this window
+			trace(n, "trace: SplitOrChangeTo: changing to existing window")
 			err = nv.Command(fmt.Sprintf("%dwincmd w", winNr))
 			wasOpen = true
 			return
@@ -263,7 +260,22 @@ func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 	}
 
 	// Not found. Split new window
-	err = nv.Command(fmt.Sprintf("split %s", fpath))
+	// Seems like :split is not working from a script for directories for me
+	// (see https://superuser.com/questions/1243344/vim-wont-split-open-a-directory-from-python-but-it-works-interactively)
+	// so if it's a directory, use Hexplore instead.
+	isDir := false
+	var fi os.FileInfo
+	if fi, err = os.Stat(fpath); err == nil && fi.IsDir() {
+		isDir = true
+	}
+
+	trace(n, "trace: SplitOrChangeTo: no window matches. splitting %s.", fpath)
+	if isDir {
+		// If it's a directory, use :Hexplore instead.
+		err = nv.Command(fmt.Sprintf("Hexplore %s", fpath))
+	} else {
+		err = nv.Command(fmt.Sprintf("split %s", fpath))
+	}
 
 	return
 }
