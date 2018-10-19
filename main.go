@@ -355,13 +355,28 @@ func (n NvAcme) OpenSelectedPath() (string, error) {
 		return "", err
 	}
 
+	// To expand tildes into home directories, we need a second expand
+	nv := n.nvim()
+	err = nv.Call("expand", &text, text)
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", nil
+	}
+
 	return n.OpenPath(text)
 }
 
 func (n NvAcme) OpenPathUnderCursor() (string, error) {
 	trace(n, "trace: obtaining current word")
 	text, err := n.CurrentWordText()
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", nil
+	}
 
+	// To expand tildes into home directories, we need a second expand
+	nv := n.nvim()
+	err = nv.Call("expand", &text, text)
 	if err != nil {
 		n.Echom("error: %v", err)
 		return "", nil
@@ -426,56 +441,7 @@ func main() {
 				defer logPanic()
 			}
 
-			trace(a, "trace: obtaining selected text")
-
-			text, err := a.CurrentWordText()
-
-			if err != nil {
-				a.Echom("error: %v", err)
-				return "", nil
-			}
-
-			trace(a, "trace: parsing path")
-			path, line, col, err := a.ParsePath(text)
-			if err != nil {
-				a.Echom("error: %v", err)
-				return "", nil
-			}
-
-			trace(a, "trace: checking if path exists")
-			if !pathExists(path) {
-				a.Echom("error: no such file '%s'", path)
-				return "", nil
-			}
-
-			trace(a, "trace: ensuring file is open or opening it")
-			var wasOpen bool
-			wasOpen, err = a.SplitOrChangeTo(path)
-			if err != nil {
-				a.Echom("error: %v", err)
-				return "", nil
-			}
-
-			if col == 0 {
-				col = 1
-			}
-			if !wasOpen {
-				if line == 0 {
-					line = 1
-				}
-				err = a.JumpToLineAndCol(line, col)
-			} else {
-				if line != 0 {
-					err = a.JumpToLineAndCol(line, col)
-				}
-			}
-
-			if err != nil {
-				a.Echom("error: %v", err)
-				return "", nil
-			}
-
-			return "", nil
+			return a.OpenPathUnderCursor()
 		}
 
 		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenSelectedPath"}, openSelectedPath)
