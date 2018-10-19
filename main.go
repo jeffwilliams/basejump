@@ -65,6 +65,21 @@ func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
 	return
 }
 
+// Return the current line and column of the cursor
+func (n NvAcme) Cursor() (line, col int, err error) {
+	result := make([]float32, 4)
+	nv := n.nvim()
+
+	err = nv.Call("getpos", result, ".")
+	if err != nil {
+		return
+	}
+
+	line = int(result[1])
+	col = int(result[2])
+	return
+}
+
 // SelectionText returns the text contained in the current selection.
 func (n NvAcme) SelectionText() (text string, err error) {
 	nv := n.nvim()
@@ -104,6 +119,13 @@ func (n NvAcme) SelectionText() (text string, err error) {
 
 	text = string(bytes[0][startCol-1 : endCol])
 
+	return
+}
+
+// CurrentWordText returns the current word under the cursor
+func (n NvAcme) CurrentWordText() (text string, err error) {
+	nv := n.nvim()
+	err = nv.Call("expand", &text, "<cWORD>")
 	return
 }
 
@@ -280,6 +302,74 @@ func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 	return
 }
 
+func (n NvAcme) OpenPath(text string) (string, error) {
+	trace(n, "trace: parsing path")
+	path, line, col, err := n.ParsePath(text)
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", err
+	}
+
+	trace(n, "trace: checking if path exists")
+	if !pathExists(path) {
+		n.Echom("error: no such file '%s'", path)
+		return "", fmt.Errorf("error: no such file '%s'", path)
+	}
+
+	trace(n, "trace: ensuring file is open or opening it")
+	var wasOpen bool
+	wasOpen, err = n.SplitOrChangeTo(path)
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", err
+	}
+
+	if col == 0 {
+		col = 1
+	}
+	if !wasOpen {
+		if line == 0 {
+			line = 1
+		}
+		err = n.JumpToLineAndCol(line, col)
+	} else {
+		if line != 0 {
+			err = n.JumpToLineAndCol(line, col)
+		}
+	}
+
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", err
+	}
+
+	return "", nil
+}
+
+func (n NvAcme) OpenSelectedPath() (string, error) {
+	trace(n, "trace: obtaining selected text")
+
+	text, err := n.SelectionText()
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", err
+	}
+
+	return n.OpenPath(text)
+}
+
+func (n NvAcme) OpenPathUnderCursor() (string, error) {
+	trace(n, "trace: obtaining current word")
+	text, err := n.CurrentWordText()
+
+	if err != nil {
+		n.Echom("error: %v", err)
+		return "", nil
+	}
+
+	return n.OpenPath(text)
+}
+
 // JumpToLineAndCol moves the cursor to the specified line and column in the
 // current buffer.
 func (n NvAcme) JumpToLineAndCol(line, col int) (err error) {
@@ -323,14 +413,23 @@ func main() {
 
 		a := NvAcme{p}
 
-		openPath := func(args []string) (string, error) {
+		openSelectedPath := func(args []string) (string, error) {
+			if *optLogPanic {
+				defer logPanic()
+			}
+
+			return a.OpenSelectedPath()
+		}
+
+		openPathUnderCursor := func(args []string) (string, error) {
 			if *optLogPanic {
 				defer logPanic()
 			}
 
 			trace(a, "trace: obtaining selected text")
 
-			text, err := a.SelectionText()
+			text, err := a.CurrentWordText()
+
 			if err != nil {
 				a.Echom("error: %v", err)
 				return "", nil
@@ -379,7 +478,8 @@ func main() {
 			return "", nil
 		}
 
-		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenPath"}, openPath)
+		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenSelectedPath"}, openSelectedPath)
+		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenPathUnderCursor"}, openPathUnderCursor)
 		return nil
 	})
 }
