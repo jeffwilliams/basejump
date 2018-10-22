@@ -129,6 +129,12 @@ func (n NvAcme) CurrentWordText() (text string, err error) {
 	return
 }
 
+func (n NvAcme) CurrentLineText() (text string, err error) {
+	nv := n.nvim()
+	err = nv.Call("getline", &text, ".")
+	return
+}
+
 var pathRegex = regexp.MustCompile(`^([^:]+)(?::(\d+))?(?::(\d+))?`)
 
 // ParsePath parses `text` into a filesystem path, line, and column. The `text`
@@ -302,26 +308,23 @@ func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 	return
 }
 
-func (n NvAcme) OpenPath(text string) (string, error) {
+func (n NvAcme) OpenPath(text string) error {
 	trace(n, "trace: parsing path")
 	path, line, col, err := n.ParsePath(text)
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", err
+		return err
 	}
 
 	trace(n, "trace: checking if path exists")
 	if !pathExists(path) {
-		n.Echom("error: no such file '%s'", path)
-		return "", fmt.Errorf("error: no such file '%s'", path)
+		return fmt.Errorf("error: no such file '%s'", path)
 	}
 
 	trace(n, "trace: ensuring file is open or opening it")
 	var wasOpen bool
 	wasOpen, err = n.SplitOrChangeTo(path)
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", err
+		return err
 	}
 
 	if col == 0 {
@@ -339,47 +342,54 @@ func (n NvAcme) OpenPath(text string) (string, error) {
 	}
 
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", err
+		return err
 	}
 
-	return "", nil
+	return nil
 }
 
-func (n NvAcme) OpenSelectedPath() (string, error) {
+func (n NvAcme) OpenSelectedPath() error {
 	trace(n, "trace: obtaining selected text")
 
 	text, err := n.SelectionText()
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", err
+		return err
 	}
 
 	// To expand tildes into home directories, we need a second expand
 	nv := n.nvim()
 	err = nv.Call("expand", &text, text)
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", nil
+		return err
 	}
 
 	return n.OpenPath(text)
 }
 
-func (n NvAcme) OpenPathUnderCursor() (string, error) {
-	trace(n, "trace: obtaining current word")
-	text, err := n.CurrentWordText()
+func (n NvAcme) OpenPathUnderCursor() error {
+	text, err := n.CurrentLineText()
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", nil
+		return err
+	}
+	_, col, err := n.Cursor()
+	if err != nil {
+		return err
 	}
 
-	// To expand tildes into home directories, we need a second expand
 	nv := n.nvim()
+	var pathChars string
+	err = nv.Var("nvacme_pathchars", &pathChars)
+	if err != nil {
+		pathChars = "-~/[a-z][A-Z].:[0-9]"
+		n.Echom("nvacme_pathchars is not defined. Defaulting to %s", pathChars)
+	}
+
+	text = matching(text, col-1, pathChars)
+
+	// To expand tildes into home directories, we need a second expand
 	err = nv.Call("expand", &text, text)
 	if err != nil {
-		n.Echom("error: %v", err)
-		return "", nil
+		return err
 	}
 
 	return n.OpenPath(text)
@@ -391,6 +401,128 @@ func (n NvAcme) JumpToLineAndCol(line, col int) (err error) {
 	nv := n.P.Nvim
 	err = nv.Call("cursor", nil, line, col)
 	return
+}
+
+func expandCharRanges(chars string) string {
+	crunes := []rune(chars)
+
+	output := make([]rune, 0, 26)
+
+	const (
+		inside = iota
+		outside
+	)
+
+	state := outside
+	start := -1
+	var low, high rune
+
+	var i int
+
+	// false alarm. Was not a range
+	restart := func() {
+		i = start
+		output = append(output, '[')
+		state = outside
+	}
+
+	expand := func() {
+		if high < low {
+			low, high = high, low
+		}
+
+		for r := low; r <= high; r++ {
+			output = append(output, r)
+		}
+	}
+
+	for i = 0; i < len(crunes); i++ {
+
+		r := crunes[i]
+		//fmt.Println("i=", i, "r=", string(r))
+
+		if state == inside {
+			// handle each position within [X-Y]
+			switch i - start {
+			case 1:
+				low = r
+			case 2:
+				if r != '-' {
+					restart()
+					continue
+				}
+			case 3:
+				high = r
+			case 4:
+				if r != ']' {
+					restart()
+					continue
+				}
+				state = outside
+				expand()
+			}
+
+			if i == len(crunes)-1 && state != outside {
+				restart()
+			}
+		} else {
+
+			switch r {
+			case '[':
+				if i < len(crunes)-1 {
+					state = inside
+					start = i
+				} else {
+					output = append(output, r)
+				}
+			default:
+				output = append(output, r)
+			}
+		}
+	}
+
+	return string(output)
+}
+
+// Starting at `index` in string `s`, move forwards and backwards
+// to find the longest string around `index` that contains only characters in
+// `chars`.
+func matching(s string, index int, chars string) string {
+	if index < 0 || index >= len(s) {
+		return ""
+	}
+
+	srunes := []rune(s)
+
+	crunes := []rune(expandCharRanges(chars))
+	good := func(i int) bool {
+		for _, r := range crunes {
+			if srunes[i] == r {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !good(index) {
+		return ""
+	}
+
+	left := index
+	for ; left >= 0; left-- {
+		if !good(left) {
+			break
+		}
+	}
+
+	right := index
+	for ; right < len(s); right++ {
+		if !good(right) {
+			break
+		}
+	}
+
+	return string(srunes[left+1 : right])
 }
 
 func pathExists(path string) bool {
@@ -433,7 +565,12 @@ func main() {
 				defer logPanic()
 			}
 
-			return a.OpenSelectedPath()
+			err := a.OpenSelectedPath()
+			if err != nil {
+				a.Echom("error: %v", err)
+			}
+			// Returning an error here prints too much overdramatic red text
+			return "", nil
 		}
 
 		openPathUnderCursor := func(args []string) (string, error) {
@@ -441,7 +578,12 @@ func main() {
 				defer logPanic()
 			}
 
-			return a.OpenPathUnderCursor()
+			err := a.OpenPathUnderCursor()
+			if err != nil {
+				a.Echom("error: %v", err)
+			}
+			// Returning an error here prints too much overdramatic red text
+			return "", nil
 		}
 
 		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenSelectedPath"}, openSelectedPath)

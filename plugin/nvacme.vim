@@ -1,18 +1,23 @@
 if exists('g:loaded_nvacme')
   finish
 endif
+
 let g:loaded_nvacme = 1
+" nvacme_pathchars are the characters that are considered path of a valid
+" path. These are used by OpenPathUnderCursor to determine the extent of the
+" path under the cursor.
+let g:nvacme_pathchars = '-~/[a-z][A-Z].:[0-9]'
 
 function! s:RequireNvacme(host) abort
   " 'nvacme' is the binary created by compiling the program.
-  return jobstart(['nvacme','-logpanic'], {'rpc': v:true})
-  "return jobstart(['nvacme'], {'rpc': v:true})
+  " If '-logpanic' is specified, panics in the binary are logged to
+  " /tmp/nvacme.panic
+  return jobstart(['nvacme'], {'rpc': v:true})
+  "return jobstart(['nvacme','-logpanic'], {'rpc': v:true})
 endfunction
 
 call remote#host#Register('nvacme', 'x', function('s:RequireNvacme'))
 
-
-" For debugging
 vmap <M-RightMouse> :call OpenSelectedPath()<CR>
 nmap <M-RightMouse> :call OpenPathUnderCursor()<CR>
 nmap <M-]> :call OpenPathUnderCursor()<CR>
