@@ -6,7 +6,7 @@ let g:loaded_nvacme = 1
 " nvacme_pathchars are the characters that are considered path of a valid
 " path. These are used by OpenPathUnderCursor to determine the extent of the
 " path under the cursor.
-let g:nvacme_pathchars = '-~/[a-z][A-Z].:[0-9]'
+let g:nvacme_pathchars = '-~/[a-z][A-Z].:[0-9]_'
 
 let s:nvacme_path = expand('<sfile>:p:h') . '/nvacme' 
 
