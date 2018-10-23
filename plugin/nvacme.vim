@@ -8,12 +8,14 @@ let g:loaded_nvacme = 1
 " path under the cursor.
 let g:nvacme_pathchars = '-~/[a-z][A-Z].:[0-9]'
 
+let s:nvacme_path = expand('<sfile>:p:h') . '/nvacme' 
+
 function! s:RequireNvacme(host) abort
   " 'nvacme' is the binary created by compiling the program.
   " If '-logpanic' is specified, panics in the binary are logged to
   " /tmp/nvacme.panic
-  return jobstart(['nvacme'], {'rpc': v:true})
-  "return jobstart(['nvacme','-logpanic'], {'rpc': v:true})
+  return jobstart([s:nvacme_path], {'rpc': v:true})
+  "return jobstart([s:nvacme_path,'-logpanic'], {'rpc': v:true})
 endfunction
 
 call remote#host#Register('nvacme', 'x', function('s:RequireNvacme'))
