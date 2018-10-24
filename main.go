@@ -1,9 +1,5 @@
 package main
 
-//
-// ~/.local/share/nvim/site/plugin
-// cp $GOPATH/src/github.com/jeffwilliams/nvacme/nvacme.vim $GOPATH/bin/nvacme .
-
 import (
 	"flag"
 	"fmt"
@@ -18,24 +14,24 @@ import (
 	"github.com/neovim/go-client/nvim/plugin"
 )
 
-type NvAcme struct {
+type Basejump struct {
 	P *plugin.Plugin
 }
 
-func (n NvAcme) nvim() *nvim.Nvim {
+func (n Basejump) nvim() *nvim.Nvim {
 	return n.P.Nvim
 }
 
 // Echom formats it's arguments using fmt.Sprintf, then performs the echom command with the resulting
 // string. Basically a printf to vim's status line and stores it in vim's messages.
-func (n NvAcme) Echom(fmts string, args ...interface{}) {
+func (n Basejump) Echom(fmts string, args ...interface{}) {
 	s := fmt.Sprintf(fmts, args...)
 	s = strings.Replace(s, "'", "''", -1)
 	n.P.Nvim.Command(fmt.Sprintf(":echom '%s'", s))
 }
 
 // Selection returns the coordinates of the current selection, if it is within a single line
-func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
+func (n Basejump) Selection() (line, startCol, endCol int, err error) {
 	result := make([]float32, 4)
 	nv := n.nvim()
 
@@ -66,7 +62,7 @@ func (n NvAcme) Selection() (line, startCol, endCol int, err error) {
 }
 
 // Return the current line and column of the cursor
-func (n NvAcme) Cursor() (line, col int, err error) {
+func (n Basejump) Cursor() (line, col int, err error) {
 	result := make([]float32, 4)
 	nv := n.nvim()
 
@@ -81,7 +77,7 @@ func (n NvAcme) Cursor() (line, col int, err error) {
 }
 
 // SelectionText returns the text contained in the current selection.
-func (n NvAcme) SelectionText() (text string, err error) {
+func (n Basejump) SelectionText() (text string, err error) {
 	nv := n.nvim()
 
 	var line, startCol, endCol int
@@ -123,13 +119,13 @@ func (n NvAcme) SelectionText() (text string, err error) {
 }
 
 // CurrentWordText returns the current word under the cursor
-func (n NvAcme) CurrentWordText() (text string, err error) {
+func (n Basejump) CurrentWordText() (text string, err error) {
 	nv := n.nvim()
 	err = nv.Call("expand", &text, "<cWORD>")
 	return
 }
 
-func (n NvAcme) CurrentLineText() (text string, err error) {
+func (n Basejump) CurrentLineText() (text string, err error) {
 	nv := n.nvim()
 	err = nv.Call("getline", &text, ".")
 	return
@@ -148,7 +144,7 @@ var pathRegex = regexp.MustCompile(`^([^:]+)(?::(\d+))?(?::(\d+))?`)
 // cwd of the current window in vim.
 //
 // If line and or col is missing, they are set to 0.
-func (n NvAcme) ParsePath(text string) (fpath string, line, col int, err error) {
+func (n Basejump) ParsePath(text string) (fpath string, line, col int, err error) {
 	text = strings.TrimSpace(text)
 	match := pathRegex.FindStringSubmatch(text)
 	if match == nil || len(match) < 2 {
@@ -178,17 +174,17 @@ func (n NvAcme) ParsePath(text string) (fpath string, line, col int, err error) 
 
 // AbsPath makes the path `fpath` absolute if it is not by prepending
 // the working directory of the current window.
-func (n NvAcme) AbsPath(fpath string) (result string, err error) {
+func (n Basejump) AbsPath(fpath string) (result string, err error) {
 	return n.AbsPathRelWindow(fpath, -1)
 }
 
-func (n NvAcme) pidCwd(pid int) (string, error) {
+func (n Basejump) pidCwd(pid int) (string, error) {
 	return os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
 }
 
 // AbsPathRelWindow makes the path `fpath` absolute if it is not by prepending
 // the working directory of the window `window`.
-func (n NvAcme) AbsPathRelWindow(fpath string, window int) (result string, err error) {
+func (n Basejump) AbsPathRelWindow(fpath string, window int) (result string, err error) {
 	nv := n.nvim()
 
 	result = fpath
@@ -247,7 +243,7 @@ func (n NvAcme) AbsPathRelWindow(fpath string, window int) (result string, err e
 // SplitOrChangeTo ensures the specified file is open in vim. If the path is found in a
 // window, that window is made current. If no window contains that path, it is split and
 // opened.
-func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
+func (n Basejump) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 	nv := n.nvim()
 
 	wins, err := nv.Windows()
@@ -308,7 +304,7 @@ func (n NvAcme) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 	return
 }
 
-func (n NvAcme) OpenPath(text string) error {
+func (n Basejump) OpenPath(text string) error {
 	trace(n, "trace: parsing path")
 	path, line, col, err := n.ParsePath(text)
 	if err != nil {
@@ -348,7 +344,7 @@ func (n NvAcme) OpenPath(text string) error {
 	return nil
 }
 
-func (n NvAcme) OpenSelectedPath() error {
+func (n Basejump) OpenSelectedPath() error {
 	trace(n, "trace: obtaining selected text")
 
 	text, err := n.SelectionText()
@@ -366,7 +362,7 @@ func (n NvAcme) OpenSelectedPath() error {
 	return n.OpenPath(text)
 }
 
-func (n NvAcme) OpenPathUnderCursor() error {
+func (n Basejump) OpenPathUnderCursor() error {
 	text, err := n.CurrentLineText()
 	if err != nil {
 		return err
@@ -378,10 +374,10 @@ func (n NvAcme) OpenPathUnderCursor() error {
 
 	nv := n.nvim()
 	var pathChars string
-	err = nv.Var("nvacme_pathchars", &pathChars)
+	err = nv.Var("basejump_pathchars", &pathChars)
 	if err != nil {
 		pathChars = "-~/[a-z][A-Z].:[0-9]"
-		n.Echom("nvacme_pathchars is not defined. Defaulting to %s", pathChars)
+		n.Echom("basejump_pathchars is not defined. Defaulting to %s", pathChars)
 	}
 
 	text = matching(text, col-1, pathChars)
@@ -397,7 +393,7 @@ func (n NvAcme) OpenPathUnderCursor() error {
 
 // JumpToLineAndCol moves the cursor to the specified line and column in the
 // current buffer.
-func (n NvAcme) JumpToLineAndCol(line, col int) (err error) {
+func (n Basejump) JumpToLineAndCol(line, col int) (err error) {
 	nv := n.P.Nvim
 	err = nv.Call("cursor", nil, line, col)
 	return
@@ -530,11 +526,11 @@ func pathExists(path string) bool {
 	return !os.IsNotExist(err)
 }
 
-var optLogPanic = flag.Bool("logpanic", false, "log panics to the file /tmp/nvacme.panic")
+var optLogPanic = flag.Bool("logpanic", false, "log panics to the file /tmp/basejump.panic")
 
 func logPanic() {
 	if v := recover(); v != nil {
-		f, err := os.Create("/tmp/nvacme.panic")
+		f, err := os.Create("/tmp/basejump.panic")
 		if err != nil {
 			return
 		}
@@ -546,7 +542,7 @@ func logPanic() {
 
 var doTrace = false
 
-func trace(n NvAcme, fmt string, args ...interface{}) {
+func trace(n Basejump, fmt string, args ...interface{}) {
 	if doTrace {
 		n.Echom(fmt, args...)
 	}
@@ -558,7 +554,7 @@ func main() {
 
 	plugin.Main(func(p *plugin.Plugin) error {
 
-		a := NvAcme{p}
+		a := Basejump{p}
 
 		openSelectedPath := func(args []string) (string, error) {
 			if *optLogPanic {
