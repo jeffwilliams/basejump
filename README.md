@@ -25,7 +25,6 @@ Mode        | Binding        | Description
 ------------|----------------|------------
 Visual Mode | ALT-RightMouse | Treat the selected text as an offset-path and jump to it. If the path is not found in the open windows, it is opened as a new window.
 Visual Mode | ALT-SHIFT-RightMouse | Same as above, but if not already open, it is opened as a new tabpage.
-dow
 Normal Mode | ALT-RightMouse | Find the longest valid offset-path under the cursor, and jump to it. If the path is not found in the open windows, it is opened as a new window.
 Normal Mode | ALT-SHIFT-RightMouse | Same as above, but if not already open, it is opened as a new tabpage.
 Normal Mode | ALT-]          | Find the longest valid offset-path under the cursor, and jump to it. 
