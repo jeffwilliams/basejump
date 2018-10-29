@@ -240,47 +240,133 @@ func (n Basejump) AbsPathRelWindow(fpath string, window int) (result string, err
 	return
 }
 
-// SplitOrChangeTo ensures the specified file is open in vim. If the path is found in a
-// window, that window is made current. If no window contains that path, it is split and
-// opened.
-func (n Basejump) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
+type SearchType int
+
+const (
+	SearchOnlyInCurrentTab = iota
+	SearchInAllTabs
+)
+
+func (n Basejump) findWindow(fpath string, srchType SearchType) (win *nvim.Window, tabNr, winNr int, err error) {
 	nv := n.nvim()
 
-	wins, err := nv.Windows()
+	defer func() {
+		if win != nil {
+			trace(n, "trace: findWindow: `%s` found in tab %d window %d", fpath, tabNr, winNr)
+		} else {
+			trace(n, "trace: findWindow: `%s` not found in open windows", fpath)
+		}
+	}()
+
+	findInList := func(wins []nvim.Window) {
+		for _, cwin := range wins {
+			var buf nvim.Buffer
+			var bufFileName string
+
+			buf, err = nv.WindowBuffer(cwin)
+			if err != nil {
+				return
+			}
+
+			bufFileName, err = nv.BufferName(buf)
+			if err != nil {
+				return
+			}
+
+			winNr, err = nv.WindowNumber(cwin)
+			if err != nil {
+				return
+			}
+
+			bufFileName, err = n.AbsPathRelWindow(bufFileName, winNr)
+			if err != nil {
+				return
+			}
+
+			if path.Clean(bufFileName) == path.Clean(fpath) {
+				win = &cwin
+				return
+			}
+		}
+
+		return
+	}
+
+	if srchType == SearchOnlyInCurrentTab {
+		trace(n, "trace: findWindow: searching for `%s` in current tab's windows", fpath)
+		var wins []nvim.Window
+		wins, err = nv.Windows()
+		if err != nil {
+			return
+		}
+		findInList(wins)
+	} else {
+		trace(n, "trace: findWindow: searching for `%s` in all tabs windows", fpath)
+		var tabs []nvim.Tabpage
+		tabs, err = nv.Tabpages()
+		if err != nil {
+			return
+		}
+
+		// Move the current tab to the first, so that if the window is in the
+		// current tabpage and another one, we prefer the local one
+		var curTab nvim.Tabpage
+		curTab, err = nv.CurrentTabpage()
+		if err != nil {
+			return
+		}
+		for i, tab := range tabs {
+			if tab == curTab && i > 0 {
+				t := tabs[0]
+				tabs[0] = tabs[i]
+				tabs[i] = t
+				break
+			}
+		}
+
+		for _, tab := range tabs {
+			var wins []nvim.Window
+			wins, err = nv.TabpageWindows(tab)
+			if err != nil {
+				return
+			}
+
+			tabNr, err = nv.TabpageNumber(tab)
+			if err != nil {
+				return
+			}
+
+			findInList(wins)
+			if err != nil || win != nil {
+				return
+			}
+		}
+	}
+
+	return
+}
+
+// OpenOrChangeTo ensures the specified file is open in vim. If the path is found in a
+// window, that window is made current. If no window contains that path, it is split and
+// opened.
+func (n Basejump) OpenOrChangeTo(fpath, method string) (wasOpen bool, err error) {
+	nv := n.nvim()
+
+	//win, winNr, err := n.findWindow(fpath, SearchOnlyInCurrentTab)
+	win, tabNr, winNr, err := n.findWindow(fpath, SearchInAllTabs)
 	if err != nil {
 		return
 	}
 
-	for _, win := range wins {
-		var buf nvim.Buffer
-		var bufFileName string
-		var winNr int
+	if win != nil {
+		// Change to this window
+		trace(n, "trace: SplitOrChangeTo: changing to tab")
+		nv.Command(fmt.Sprintf("%dtabnext", tabNr))
 
-		buf, err = nv.WindowBuffer(win)
-		if err != nil {
-			return
-		}
-		bufFileName, err = nv.BufferName(buf)
-		if err != nil {
-			return
-		}
-
-		winNr, err = nv.WindowNumber(win)
-		if err != nil {
-			return
-		}
-
-		bufFileName, err = n.AbsPathRelWindow(bufFileName, winNr)
-		if err != nil {
-			return
-		}
-		if path.Clean(bufFileName) == path.Clean(fpath) {
-			// Change to this window
-			trace(n, "trace: SplitOrChangeTo: changing to existing window")
-			err = nv.Command(fmt.Sprintf("%dwincmd w", winNr))
-			wasOpen = true
-			return
-		}
+		trace(n, "trace: SplitOrChangeTo: changing to existing window")
+		err = nv.Command(fmt.Sprintf("%dwincmd w", winNr))
+		wasOpen = true
+		return
 	}
 
 	// Not found. Split new window
@@ -293,18 +379,27 @@ func (n Basejump) SplitOrChangeTo(fpath string) (wasOpen bool, err error) {
 		isDir = true
 	}
 
-	trace(n, "trace: SplitOrChangeTo: no window matches. splitting %s.", fpath)
+	action := "splitting"
+	dirCmd := "Hexplore"
+	splitCmd := "split"
+	if method == openByTab {
+		action = "tabbing"
+		dirCmd = "Texplore"
+		splitCmd = "tabedit"
+	}
+
+	trace(n, "trace: SplitOrChangeTo: no window matches. %s %s.", action, fpath)
 	if isDir {
 		// If it's a directory, use :Hexplore instead.
-		err = nv.Command(fmt.Sprintf("Hexplore %s", fpath))
+		err = nv.Command(fmt.Sprintf("%s %s", dirCmd, fpath))
 	} else {
-		err = nv.Command(fmt.Sprintf("split %s", fpath))
+		err = nv.Command(fmt.Sprintf("%s %s", splitCmd, fpath))
 	}
 
 	return
 }
 
-func (n Basejump) OpenPath(text string) error {
+func (n Basejump) OpenPath(text, method string) error {
 	trace(n, "trace: parsing path")
 	path, line, col, err := n.ParsePath(text)
 	if err != nil {
@@ -318,7 +413,7 @@ func (n Basejump) OpenPath(text string) error {
 
 	trace(n, "trace: ensuring file is open or opening it")
 	var wasOpen bool
-	wasOpen, err = n.SplitOrChangeTo(path)
+	wasOpen, err = n.OpenOrChangeTo(path, method)
 	if err != nil {
 		return err
 	}
@@ -344,7 +439,7 @@ func (n Basejump) OpenPath(text string) error {
 	return nil
 }
 
-func (n Basejump) OpenSelectedPath() error {
+func (n Basejump) OpenSelectedPath(method string) error {
 	trace(n, "trace: obtaining selected text")
 
 	text, err := n.SelectionText()
@@ -359,10 +454,10 @@ func (n Basejump) OpenSelectedPath() error {
 		return err
 	}
 
-	return n.OpenPath(text)
+	return n.OpenPath(text, method)
 }
 
-func (n Basejump) OpenPathUnderCursor() error {
+func (n Basejump) OpenPathUnderCursor(method string) error {
 	text, err := n.CurrentLineText()
 	if err != nil {
 		return err
@@ -388,7 +483,7 @@ func (n Basejump) OpenPathUnderCursor() error {
 		return err
 	}
 
-	return n.OpenPath(text)
+	return n.OpenPath(text, method)
 }
 
 // JumpToLineAndCol moves the cursor to the specified line and column in the
@@ -527,6 +622,7 @@ func pathExists(path string) bool {
 }
 
 var optLogPanic = flag.Bool("logpanic", false, "log panics to the file /tmp/basejump.panic")
+var optTrace = flag.Bool("trace", false, "trace execution to messages history")
 
 func logPanic() {
 	if v := recover(); v != nil {
@@ -540,13 +636,16 @@ func logPanic() {
 	}
 }
 
-var doTrace = false
-
 func trace(n Basejump, fmt string, args ...interface{}) {
-	if doTrace {
+	if *optTrace {
 		n.Echom(fmt, args...)
 	}
 }
+
+const (
+	openBySplit = "split"
+	openByTab   = "tab"
+)
 
 func main() {
 
@@ -561,7 +660,11 @@ func main() {
 				defer logPanic()
 			}
 
-			err := a.OpenSelectedPath()
+			if len(args) == 0 {
+				args = append(args, openBySplit)
+			}
+
+			err := a.OpenSelectedPath(args[0])
 			if err != nil {
 				a.Echom("error: %v", err)
 			}
@@ -574,7 +677,11 @@ func main() {
 				defer logPanic()
 			}
 
-			err := a.OpenPathUnderCursor()
+			if len(args) == 0 {
+				args = append(args, openBySplit)
+			}
+
+			err := a.OpenPathUnderCursor(args[0])
 			if err != nil {
 				a.Echom("error: %v", err)
 			}
