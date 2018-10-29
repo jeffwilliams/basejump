@@ -18,6 +18,9 @@ the cursor is moved to line 40. Finally a column number like so:
 
 will move to line 40 and column 5. For convenience in the documentation we'll refer to a path with an optional line and column as an _offset-path_. The act of opening an offset-path in a new buffer, or if the path is already open moving the cursor to that buffer and positioning the cursor in it, will be referred to as _jumping_.
 
+# Supported Systems
+
+Currently only Linux amd64 is supported. Support for other architectures is in progress.
 
 # Default Keybindings
 
@@ -37,3 +40,13 @@ Basejump behaves very similar to the gf, gF, CTRL-W F, etc. family of commands. 
   * The normal mode form of the commands don't support a column suffix after the line
   * The visual mode form of the commands doesn't support the line number suffix of the path, only the file path itself
   * The "new window" form of the commands always opens a new window, even if one already exists for the file
+
+# Installation
+
+Install using [https://github.com/junegunn/vim-plug](vim-plug). Add the following to your plug section:
+
+    Plug 'jeffwilliams/basejump'
+
+
+
+
