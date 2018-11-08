@@ -45,7 +45,7 @@ Basejump behaves very similar to the gf, gF, CTRL-W F, etc. family of commands. 
 
 Install using [https://github.com/junegunn/vim-plug](vim-plug). Add the following to your plug section:
 
-    Plug 'jeffwilliams/basejump', { 'do': './plugin/install' }
+    Plug 'jeffwilliams/basejump', { 'do': './install' }
 
 
 
