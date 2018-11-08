@@ -6,20 +6,20 @@ version=0.0.1
 try_curl() {
   command -v curl > /dev/null &&
   if [[ $1 =~ tar.gz$ ]]; then
-    curl -fL $1 | tar -xzf -
+    curl -fL $1 | tar -xzf - && mv basejump plugin
   else
     local temp=${TMPDIR:-/tmp}/fzf.zip
-    curl -fLo "$temp" $1 && unzip -o "$temp" && rm -f "$temp"
+    curl -fLo "$temp" $1 && unzip -o "$temp" && rm -f "$temp" && mv basejump plugin
   fi
 }
 
 try_wget() {
   command -v wget > /dev/null &&
   if [[ $1 =~ tar.gz$ ]]; then
-    wget -O - $1 | tar -xzf -
+    wget -O - $1 | tar -xzf - && mv basejump plugin
   else
     local temp=${TMPDIR:-/tmp}/fzf.zip
-    wget -O "$temp" $1 && unzip -o "$temp" && rm -f "$temp"
+    wget -O "$temp" $1 && unzip -o "$temp" && rm -f "$temp" && mv basejump plugin
   fi
 }
 
@@ -36,7 +36,7 @@ download() {
   fi
   set +o pipefail
 
-  chmod +x basejump
+  chmod +x plugin/basejump
 }
 
 # Try to download binary executable
