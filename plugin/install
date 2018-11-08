@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -u
+
+version=0.0.1
+
+try_curl() {
+  command -v curl > /dev/null &&
+  if [[ $1 =~ tar.gz$ ]]; then
+    curl -fL $1 | tar -xzf -
+  else
+    local temp=${TMPDIR:-/tmp}/fzf.zip
+    curl -fLo "$temp" $1 && unzip -o "$temp" && rm -f "$temp"
+  fi
+}
+
+try_wget() {
+  command -v wget > /dev/null &&
+  if [[ $1 =~ tar.gz$ ]]; then
+    wget -O - $1 | tar -xzf -
+  else
+    local temp=${TMPDIR:-/tmp}/fzf.zip
+    wget -O "$temp" $1 && unzip -o "$temp" && rm -f "$temp"
+  fi
+}
+
+download() {
+  echo "Downloading basejump binary ..."
+
+  local url
+	url=https://github.com/jeffwilliams/basejump-bin/releases/download/v$version/${1}
+  set -o pipefail
+  if ! (try_curl $url || try_wget $url); then
+    set +o pipefail
+    echo "Failed to download with curl and wget"
+    return
+  fi
+  set +o pipefail
+
+  chmod +x basejump
+}
+
+# Try to download binary executable
+archi=$(uname -sm)
+binary_available=1
+binary_error=""
+case "$archi" in
+  Darwin\ *64)   download basejump_${version}_darwin_x86_64.tar.gz  ;;
+  Darwin\ *86)   download basejump_${version}_darwin_i386.tar.gz    ;;
+  Linux\ armv6*) download basejump_${version}_linux_armv6.tar.gz    ;;
+  Linux\ arm64*) download basejump_${version}_linux_arm64.tar.gz    ;;
+  Linux\ *64)    download basejump_${version}_linux_x86_64.tar.gz   ;;
+  Linux\ *86)    download basejump_${version}_linux_i386.tar.gz     ;;
+  *)             echo "No prebuilt binary for $archi"; exit 1 ;;
+esac
+
