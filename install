@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-version=0.0.1
+version=0.0.2
 
 try_curl() {
   command -v curl > /dev/null &&
