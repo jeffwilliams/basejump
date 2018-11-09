@@ -3,10 +3,14 @@ if exists('g:loaded_basejump')
 endif
 
 let g:loaded_basejump = 1
+
 " basejump_pathchars are the characters that are considered path of a valid
 " path. These are used by OpenPathUnderCursor to determine the extent of the
 " path under the cursor.
 let g:basejump_pathchars = '-~/[a-z][A-Z].:[0-9]_'
+
+" browsers are the list of browsers to try and open an http:// URL with.
+let g:basejump_browsers = ['elinks','w3m','links','lynx']
 
 let s:basejump_path = expand('<sfile>:p:h') . '/basejump' 
 

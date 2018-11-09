@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"regexp"
 	"runtime/debug"
@@ -146,6 +148,7 @@ var pathRegex = regexp.MustCompile(`^([^:]+)(?::(\d+))?(?::(\d+))?`)
 // If line and or col is missing, they are set to 0.
 func (n Basejump) ParsePath(text string) (fpath string, line, col int, err error) {
 	text = strings.TrimSpace(text)
+
 	match := pathRegex.FindStringSubmatch(text)
 	if match == nil || len(match) < 2 {
 		err = fmt.Errorf("doesn't seem to be a valid path")
@@ -399,11 +402,66 @@ func (n Basejump) OpenOrChangeTo(fpath, method string) (wasOpen bool, err error)
 	return
 }
 
-func (n Basejump) OpenPath(text, method string) error {
-	trace(n, "trace: parsing path")
-	path, line, col, err := n.ParsePath(text)
+func commandWhichExists(cmds []string) string {
+	for _, cmd := range cmds {
+		path, err := exec.LookPath(cmd)
+		if err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+func (n Basejump) OpenRemoteUrl(url *url.URL, method string) error {
+	nv := n.nvim()
+
+	browsers := []string{"elinks", "w3m", "links", "lynx"}
+
+	err := nv.Var("basejump_browsers", browsers)
+	if err != nil {
+		n.Echom("basejump_browsers is not defined (%v). Defaulting to %s", err, browsers)
+	}
+
+	b := commandWhichExists(browsers)
+	if b == "" {
+		return fmt.Errorf("error: no browser found. Tried %v", browsers)
+	}
+
+	action := "new"
+	if method == openByTab {
+		action = "tabnew"
+	}
+	err = nv.Command(action)
 	if err != nil {
 		return err
+	}
+
+	err = nv.Call("termopen", nil, fmt.Sprintf("%s %s", b, url))
+	return err
+}
+
+func (n Basejump) OpenPath(text, method string) error {
+	var path string
+	var line, col int
+
+	trace(n, "trace: checking for URL")
+	// First, check for a URL
+	url, err := url.Parse(text)
+	if err == nil {
+		if url.Scheme == "file" {
+			path = url.Path
+		} else if url.Scheme == "http" || url.Scheme == "https" {
+			// Handle a remote URL specially
+			return n.OpenRemoteUrl(url, method)
+		}
+	}
+
+	if path == "" {
+		trace(n, "trace: parsing path")
+		path, line, col, err = n.ParsePath(text)
+		if err != nil {
+			return err
+		}
 	}
 
 	trace(n, "trace: checking if path exists")
