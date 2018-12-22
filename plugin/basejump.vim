@@ -22,10 +22,16 @@ function! s:RequireBasejump(host) abort
   "return jobstart([s:basejump_path,'-logpanic'], {'rpc': v:true})
 endfunction
 
+" This prevents a multi-line selection from triggering a call 
+" to OpenSelectedPath for each line in the selection.
+function! BasejumpOpenSelectedPathRange(action) range
+  :call OpenSelectedPath(a:action)
+endfunction
+
 call remote#host#Register('basejump', 'x', function('s:RequireBasejump'))
 
-vmap <M-RightMouse> :call OpenSelectedPath('split')<CR>
-vmap <M-S-RightMouse> :call OpenSelectedPath('tab')<CR>
+vmap <M-RightMouse> :call BasejumpOpenSelectedPathRange('split')<CR>
+vmap <M-S-RightMouse> :call BasejumpOpenSelectedPathRange('tab')<CR>
 nmap <M-RightMouse> :call OpenPathUnderCursor('split')<CR>
 nmap <M-S-RightMouse> :call OpenPathUnderCursor('tab')<CR>
 nmap <M-]> :call OpenPathUnderCursor('split')<CR>

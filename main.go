@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"net/url"
@@ -33,7 +34,8 @@ func (n Basejump) Echom(fmts string, args ...interface{}) {
 }
 
 // Selection returns the coordinates of the current selection, if it is within a single line
-func (n Basejump) Selection() (line, startCol, endCol int, err error) {
+// Note that if we are not in visual mode, this returns the last selection in visual mode.
+func (n Basejump) Selection() (startLine, startCol, endLine, endCol int, err error) {
 	result := make([]float32, 4)
 	nv := n.nvim()
 
@@ -42,7 +44,7 @@ func (n Basejump) Selection() (line, startCol, endCol int, err error) {
 		return
 	}
 
-	startLine := result[1]
+	startLine = int(result[1])
 	startCol = int(result[2])
 
 	err = nv.Call("getpos", result, "'>")
@@ -50,15 +52,8 @@ func (n Basejump) Selection() (line, startCol, endCol int, err error) {
 		return
 	}
 
-	endLine := result[1]
+	endLine = int(result[1])
 	endCol = int(result[2])
-
-	if startLine != endLine {
-		err = fmt.Errorf("selection is multiple lines")
-		return
-	}
-
-	line = int(startLine)
 
 	return
 }
@@ -82,11 +77,13 @@ func (n Basejump) Cursor() (line, col int, err error) {
 func (n Basejump) SelectionText() (text string, err error) {
 	nv := n.nvim()
 
-	var line, startCol, endCol int
-	line, startCol, endCol, err = n.Selection()
+	var startLine, startCol, endLine, endCol int
+	startLine, startCol, endLine, endCol, err = n.Selection()
 	if err != nil {
 		return
 	}
+
+	trace(n, "selected text is from line %d col %d to line %d col %d", startLine, startCol, endLine, endCol)
 
 	var buf nvim.Buffer
 	buf, err = nv.CurrentBuffer()
@@ -94,29 +91,26 @@ func (n Basejump) SelectionText() (text string, err error) {
 		return
 	}
 
-	var bytes [][]byte
-	bytes, err = nv.BufferLines(buf, line-1, line, true)
+	var lines [][]byte
+	// Indexing is zero-based, end-exclusive
+	lines, err = nv.BufferLines(buf, startLine-1, endLine, true)
 	if err != nil {
 		return
 	}
 
-	if len(bytes) == 0 {
-		err = fmt.Errorf("selection is empty")
-		return
+	var bbuf bytes.Buffer
+
+	if len(lines) == 1 {
+		bbuf.Write(lines[0][startCol-1 : endCol])
+	} else if len(lines) > 1 {
+		bbuf.Write(lines[0][startCol-1 : len(lines[0])])
+		for i := 1; i < len(lines)-1; i++ {
+			bbuf.Write(lines[i])
+		}
+		bbuf.Write(lines[len(lines)-1][0:endCol])
 	}
 
-	if len(bytes) > 1 {
-		err = fmt.Errorf("selection is multiple lines")
-		return
-	}
-
-	// For some reason a visual selection can select one character past the end of the line
-	if endCol > len(bytes[0]) {
-		endCol = len(bytes[0])
-	}
-
-	text = string(bytes[0][startCol-1 : endCol])
-
+	text = bbuf.String()
 	return
 }
 
@@ -502,6 +496,11 @@ func (n Basejump) OpenSelectedPath(method string) error {
 
 	text, err := n.SelectionText()
 	if err != nil {
+		return err
+	}
+
+	if len(text) == 0 {
+		err = fmt.Errorf("selection is empty")
 		return err
 	}
 
