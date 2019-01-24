@@ -547,6 +547,17 @@ func (n Basejump) OpenPathUnderCursor(method string) error {
 // current buffer.
 func (n Basejump) JumpToLineAndCol(line, col int) (err error) {
 	nv := n.P.Nvim
+	// In order to store these jumps in the jump history
+	// we use the 'G' command first. This only stores the line
+	// number, though, with column 1 (instead of the correct column).
+	// We store a second jump by doing a forward search for any character,
+	// with the count of the column number i.e. 10/.
+	nv.Command(fmt.Sprintf("normal %dG", line))
+	if col > 1 {
+		nv.Command(fmt.Sprintf("normal %d/.", col-1))
+	}
+
+	// Just to make sure we didn't mess up
 	err = nv.Call("cursor", nil, line, col)
 	return
 }

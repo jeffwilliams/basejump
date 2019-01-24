@@ -39,6 +39,8 @@ Basejump behaves very similar to the gf, gF, CTRL-W F, etc. family of commands. 
   * The visual mode form of the commands doesn't support the line number suffix of the path, only the file path itself
   * The "new window" form of the commands always opens a new window, even if one already exists for the file
   * Basejump supports http:// URLs
+  * Basejump stores the old positions within a file in the jump list, so CTRL-O and CTRL-I work
+  
 
 # Installation
 
