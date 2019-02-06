@@ -438,6 +438,8 @@ func (n Basejump) OpenPath(text, method string) error {
 	var path string
 	var line, col int
 
+	nv := n.nvim()
+
 	trace(n, "trace: checking for URL")
 	// First, check for a URL
 	url, err := url.Parse(text)
@@ -458,8 +460,11 @@ func (n Basejump) OpenPath(text, method string) error {
 		}
 	}
 
+	var openNonexistent int
+	nv.Var("basejump_open_nonexistent", &openNonexistent)
+
 	trace(n, "trace: checking if path exists")
-	if !pathExists(path) {
+	if openNonexistent == 0 && !pathExists(path) {
 		return fmt.Errorf("error: no such file '%s'", path)
 	}
 

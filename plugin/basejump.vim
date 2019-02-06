@@ -9,6 +9,10 @@ let g:loaded_basejump = 1
 " path under the cursor.
 let g:basejump_pathchars = '-~/[a-z][A-Z].:[0-9]_'
 
+" If set to nonzero, basejump will open nonexistent files as a new buffer.
+" If set to zero, it will print an error and refuse to open the file.
+let g:basejump_open_nonexistent = 1
+
 " browsers are the list of browsers to try and open an http:// URL with.
 let g:basejump_browsers = ['elinks','w3m','links','lynx']
 
