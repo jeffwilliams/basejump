@@ -41,6 +41,9 @@ call remote#host#Register('basejump', 'x', function('s:RequireBasejump'))
 vmap <M-RightMouse> :call BasejumpOpenSelectedPathRange(g:basejump_openmode)<CR>
 nmap <M-RightMouse> :call OpenPathUnderCursor(g:basejump_openmode)<CR>
 nmap <M-S-RightMouse> :call OpenLineFromDiff(g:basejump_openmode)<CR>
+" M-S-RightMouse is overridden in URXVT. Uncomment the below binding to use 
+" Meta MiddleMouse instead.
+"nmap <M-MiddleMouse> :call OpenLineFromDiff(g:basejump_openmode)<CR>
 nmap <M-]> :call OpenPathUnderCursor(g:basejump_openmode)<CR>
 nmap <M-S-]> :call OpenLineFromDiff(g:basejump_openmode)<CR>
 
