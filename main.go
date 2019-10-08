@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jeffwilliams/basejump/diff"
 	"github.com/neovim/go-client/nvim"
 	"github.com/neovim/go-client/nvim/plugin"
 )
@@ -121,9 +122,21 @@ func (n Basejump) CurrentWordText() (text string, err error) {
 	return
 }
 
+func (n Basejump) CurrentLineNumber() (num int, err error) {
+	nv := n.nvim()
+	err = nv.Call("line", &num, ".")
+	return
+}
+
 func (n Basejump) CurrentLineText() (text string, err error) {
 	nv := n.nvim()
 	err = nv.Call("getline", &text, ".")
+	return
+}
+
+func (n Basejump) LineText(line int) (text string, err error) {
+	nv := n.nvim()
+	err = nv.Call("getline", &text, line)
 	return
 }
 
@@ -203,7 +216,6 @@ func (n Basejump) AbsPathRelWindow(fpath string, window int) (result string, err
 				var pid float32
 				var buf nvim.Buffer
 				buf, err = nv.CurrentBuffer()
-				//buf, err = nv.WindowBuffer(win)
 				if err != nil {
 					return
 				}
@@ -255,6 +267,11 @@ func (n Basejump) findWindow(fpath string, srchType SearchType) (win *nvim.Windo
 		}
 	}()
 
+	nfpath, err := n.AbsPath(fpath)
+	if err == nil {
+		fpath = nfpath
+	}
+
 	findInList := func(wins []nvim.Window) {
 		for _, cwin := range wins {
 			var buf nvim.Buffer
@@ -262,24 +279,29 @@ func (n Basejump) findWindow(fpath string, srchType SearchType) (win *nvim.Windo
 
 			buf, err = nv.WindowBuffer(cwin)
 			if err != nil {
+				trace(n, "trace: findWindow: WindowBuffer(%d) failed: %v", cwin, err)
 				return
 			}
 
 			bufFileName, err = nv.BufferName(buf)
 			if err != nil {
+				trace(n, "trace: findWindow: BufferName failed: %v", err)
 				return
 			}
 
 			winNr, err = nv.WindowNumber(cwin)
 			if err != nil {
+				trace(n, "trace: findWindow: WindowNumber(%d) failed: %v", cwin, err)
 				return
 			}
 
 			bufFileName, err = n.AbsPathRelWindow(bufFileName, winNr)
 			if err != nil {
+				trace(n, "trace: findWindow: n.AbsPathRelWindow failed: %v", err)
 				return
 			}
 
+			trace(n, "trace: findWindow: '%s' vs '%s'", path.Clean(bufFileName), path.Clean(fpath))
 			if path.Clean(bufFileName) == path.Clean(fpath) {
 				win = &cwin
 				return
@@ -468,11 +490,43 @@ func (n Basejump) OpenPath(text, method string) error {
 		return fmt.Errorf("error: no such file '%s'", path)
 	}
 
+	/*
+		trace(n, "trace: ensuring file is open or opening it")
+		var wasOpen bool
+		wasOpen, err = n.OpenOrChangeTo(path, method)
+		if err != nil {
+			return err
+		}
+
+		if col == 0 {
+			col = 1
+		}
+		if !wasOpen {
+			if line == 0 {
+				line = 1
+			}
+			err = n.JumpToLineAndCol(line, col)
+		} else {
+			if line != 0 {
+				err = n.JumpToLineAndCol(line, col)
+			}
+		}
+
+		if err != nil {
+			return err
+		}
+	*/
+
+	n.OpenPathAtLineCol(path, line, col, method)
+	return nil
+}
+
+func (n Basejump) OpenPathAtLineCol(path string, line, col int, method string) (err error) {
 	trace(n, "trace: ensuring file is open or opening it")
 	var wasOpen bool
 	wasOpen, err = n.OpenOrChangeTo(path, method)
 	if err != nil {
-		return err
+		return
 	}
 
 	if col == 0 {
@@ -489,11 +543,7 @@ func (n Basejump) OpenPath(text, method string) error {
 		}
 	}
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return
 }
 
 func (n Basejump) OpenSelectedPath(method string) error {
@@ -565,6 +615,31 @@ func (n Basejump) JumpToLineAndCol(line, col int) (err error) {
 	// Just to make sure we didn't mess up
 	err = nv.Call("cursor", nil, line, col)
 	return
+}
+
+func (n Basejump) OpenLineFromDiff(method string) error {
+	// When the diff code checks if a path exists, we want it to be
+	// relative to the current window, not to the basejump process.
+	pe := func(path string) bool {
+		npath, err := n.AbsPath(path)
+		if err != nil {
+			trace(n, "trace: OpenLineFromDiff: AbsPath(%s) failed: %v", path, err)
+			npath = path
+		}
+		trace(n, "trace: OpenLineFromDiff: npath is %s", npath)
+
+		return pathExists(npath)
+	}
+
+	path, lineNo, err := diff.CalcFileAndLine(n, pe)
+
+	trace(n, "trace: diff file: computed file '%s' line %d", path, lineNo)
+
+	if err != nil {
+		return err
+	}
+
+	return n.OpenPathAtLineCol(path, lineNo, 1, method)
 }
 
 func expandCharRanges(chars string) string {
@@ -762,8 +837,27 @@ func main() {
 			return "", nil
 		}
 
+		openLineFromDiff := func(args []string) (string, error) {
+			if *optLogPanic {
+				defer logPanic()
+			}
+
+			if len(args) == 0 {
+				args = append(args, openBySplit)
+			}
+
+			err := a.OpenLineFromDiff(args[0])
+
+			if err != nil {
+				a.Echom("error: %v", err)
+			}
+			// Returning an error here prints too much overdramatic red text
+			return "", nil
+		}
+
 		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenSelectedPath"}, openSelectedPath)
 		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenPathUnderCursor"}, openPathUnderCursor)
+		p.HandleFunction(&plugin.FunctionOptions{Name: "OpenLineFromDiff"}, openLineFromDiff)
 		return nil
 	})
 }
